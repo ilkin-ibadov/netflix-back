@@ -81,7 +81,7 @@ export async function login(req, res) {
 			return res.status(400).json({ success: false, message: "Invalid credentials" });
 		}
 
-		generateTokenAndSetCookie(user._id, res);
+		const token = generateTokenAndSetCookie(user._id, res);
 
 		res.status(200).json({
 			success: true,
@@ -89,6 +89,7 @@ export async function login(req, res) {
 				...user._doc,
 				password: "",
 			},
+			token: token
 		});
 	} catch (error) {
 		console.log("Error in login controller", error.message);
