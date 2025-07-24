@@ -6,14 +6,14 @@ import {
 	getTvsByCategory,
 	getTvTrailers,
 } from "../controllers/tv.controller.js";
-import { protectRoute } from "../middleware/protectRoute.js";
+import { protect } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
 router.get("/trending", getTrendingTv);
-router.get("/:id/trailers", protectRoute, getTvTrailers);
-router.get("/:id/details", getTvDetails);
-router.get("/:id/similar", protectRoute, getSimilarTvs);
-router.get("/:category", protectRoute, getTvsByCategory);
+router.get("/:id/trailers", protect, getTvTrailers);
+router.get("/:id/details", protect, getTvDetails);
+router.get("/:id/similar", protect, getSimilarTvs);
+router.get("/:category", protect, getTvsByCategory);
 
 export default router;

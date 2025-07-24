@@ -1,118 +1,73 @@
-import { User } from "../models/user.model.js";
-import bcryptjs from "bcryptjs";
-import { generateTokenAndSetCookie } from "../utils/generateToken.js";
+import User from "../models/user.model.js";
+import { generateAccessToken, generateRefreshToken } from "../utils/tokenGenerator.js"
+import jwt from "jsonwebtoken"
 
-export async function signup(req, res) {
+export const signup = async (req, res) => {
 	try {
-		const { email, password, username } = req.body;
+		const { username, email, password } = req.body
+		const user = await User.create({ username, email, password })
+		const accessToken = generateAccessToken(user, res)
+		const refreshToken = generateRefreshToken(user, res)
 
-		if (!email || !password || !username) {
-			return res.status(400).json({ success: false, message: "All fields are required" });
-		}
+		user.refreshToken = refreshToken
 
-		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+		await user.save()
 
-		if (!emailRegex.test(email)) {
-			return res.status(400).json({ success: false, message: "Invalid email" });
-		}
-
-		if (password.length < 6) {
-			return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
-		}
-
-		const existingUserByEmail = await User.findOne({ email: email });
-
-		if (existingUserByEmail) {
-			return res.status(400).json({ success: false, message: "Email already exists" });
-		}
-
-		const existingUserByUsername = await User.findOne({ username: username });
-
-		if (existingUserByUsername) {
-			return res.status(400).json({ success: false, message: "Username already exists" });
-		}
-
-		const salt = await bcryptjs.genSalt(10);
-		const hashedPassword = await bcryptjs.hash(password, salt);
-
-		const PROFILE_PICS = ["/avatar1.png", "/avatar2.png", "/avatar3.png"];
-
-		const image = PROFILE_PICS[Math.floor(Math.random() * PROFILE_PICS.length)];
-
-		const newUser = new User({
-			email,
-			password: hashedPassword,
-			username,
-			image,
-		});
-
-		generateTokenAndSetCookie(newUser._id, res);
-		await newUser.save();
-
-		res.status(201).json({
-			success: true,
-			user: {
-				...newUser._doc,
-				password: "",
-			},
-		});
+		res.status(201).json({ accessToken, refreshToken })
 	} catch (error) {
-		console.log("Error in signup controller", error.message);
-		res.status(500).json({ success: false, message: "Internal server error" });
+		res.status(400).json({ error: error.message })
 	}
 }
 
-export async function login(req, res) {
-	try {
-		const { email, password } = req.body;
-
-		if (!email || !password) {
-			return res.status(400).json({ success: false, message: "All fields are required" });
-		}
-
-		const user = await User.findOne({ email: email });
-		if (!user) {
-			return res.status(404).json({ success: false, message: "Invalid credentials" });
-		}
-
-		const isPasswordCorrect = await bcryptjs.compare(password, user.password);
-
-		if (!isPasswordCorrect) {
-			return res.status(400).json({ success: false, message: "Invalid credentials" });
-		}
-
-		const token = generateTokenAndSetCookie(user._id, res);
-
-		res.status(200).json({
-			success: true,
-			user: {
-				...user._doc,
-				password: "",
-			},
-			token: token
-		});
-	} catch (error) {
-		console.log("Error in login controller", error.message);
-		res.status(500).json({ success: false, message: "Internal server error" });
+export const login = async (req, res) => {
+	const { email, password } = req.body
+	const user = await User.findOne({ email })
+	if (!user) {
+		return res.status(404).json({ error: "User not found for given email" })
 	}
+
+	if (!(await user.matchPassword(password))) {
+		return res.status(401).json({ error: "Password is incorrect" })
+	}
+
+	const accessToken = generateAccessToken(user, res)
+	const refreshToken = generateRefreshToken(user, res)
+
+	user.refreshToken = refreshToken
+
+	await user.save()
+
+	res.status(200).json({ accessToken, refreshToken })
 }
 
-export async function logout(req, res) {
-	try {
-		res.clearCookie("jwt-netflix");
-		res.status(200).json({ success: true, message: "Logged out successfully" });
-	} catch (error) {
-		console.log("Error in logout controller", error.message);
-		res.status(500).json({ success: false, message: "Internal server error" });
-	}
+export const refreshToken = async (req, res) => {
+    const token = req.cookies.refreshToken || req.body.refreshToken
+    if (!token) return res.status(401).json({ error: 'No refresh token' })
+
+    try {
+        const decode = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET)
+        const user = await User.findById(decode.id)
+        if (!user) return res.status(404).json({ error: "User not found" })
+        if (user.refreshToken !== token) return res.status(403).json({ error: "Invalid token" })
+
+        const newAccessToken = generateAccessToken(user, res)
+
+        res.status(200).json({ accessToken: newAccessToken })
+    } catch (error) {
+        return res.status(403).json({ error: "Error while refreshing token" })
+    }
 }
 
-export async function authCheck(req, res) {
-	try {
-		console.log("req.user:", req.user);
-		res.status(200).json({ success: true, user: req.user });
-	} catch (error) {
-		console.log("Error in authCheck controller", error.message);
-		res.status(500).json({ success: false, message: "Internal server error" });
+export const logout = async (req, res) => {
+	const accessToken = req.headers.authorization?.split(' ')[1] || req.cookies.accessToken
+	const decode = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET)
+	const user = await User.findById(decode.id)
+	if (user) {
+		user.refreshToken = '',
+			await user.save()
 	}
+
+	res.clearCookie("accessToken")
+		.clearCookie('refreshToken')
+		.json({ message: "User logged out succesfully!" })
 }

@@ -1,4 +1,4 @@
-import { User } from "../models/user.model.js";
+import User from "../models/user.model.js";
 import { fetchFromTMDB } from "../services/tmdb.service.js";
 
 export async function searchPerson(req, res) {
